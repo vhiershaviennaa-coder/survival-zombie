@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Zombie Survival: Last Escape</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080d0f;color:#fff;font-family:Arial,sans-serif}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hud{position:absolute;top:14px;left:14px;right:14px;display:none;justify-content:space-between;gap:8px;pointer-events:none}
+.box{background:#101b20df;border:1px solid #ffffff25;padding:10px 13px;border-radius:11px;backdrop-filter:blur(8px)}
+.label{font-size:9px;letter-spacing:1.5px;color:#a9b8b3}.value{font-size:19px;font-weight:bold;margin-top:5px}
+#bar{width:130px;height:6px;background:#39413e;border-radius:8px;margin-top:7px;overflow:hidden}#health{height:100%;width:100%;background:#a8e66b}
+#controls{display:none;position:absolute;bottom:16px;left:14px;right:14px;justify-content:space-between;align-items:end}
+.pad{display:grid;grid-template-columns:46px 46px 46px;gap:5px}.ctrl{height:46px;width:46px;border-radius:11px;border:1px solid #ffffff44;background:#142226df;color:white;font-size:18px;font-weight:bold;touch-action:none}
+.actions{display:flex;gap:7px}.actions button{width:60px;height:56px;background:#a8e66b;color:#10170b;font-size:10px}
+#message{position:absolute;top:28%;left:0;right:0;text-align:center;color:#b9f36a;font-size:13px;font-weight:bold;text-shadow:0 2px 8px #000;pointer-events:none}
+#menu{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;background:linear-gradient(90deg,#020809dd,#02080999),radial-gradient(ellipse at 70% 50%,#26373555,transparent)}
+.panel{width:min(450px,100%);padding:28px;background:#0b1418ed;border:1px solid #ffffff2b;border-radius:18px;box-shadow:0 25px 80px #000b;text-align:center}
+.eyebrow{color:#a8e66b;font-size:10px;font-weight:bold;letter-spacing:3px}h1{font-size:clamp(38px,9vw,55px);line-height:.95;margin:13px 0;letter-spacing:-2px}h1 span{color:#a8e66b}
+p{font-size:13px;color:#b9c5c1;line-height:1.6}.start{width:100%;padding:15px;background:#a8e66b;color:#10170b;border:0;border-radius:9px;font-weight:900;letter-spacing:1px;margin-top:12px;cursor:pointer}
+.hint{font-size:10px;color:#8d9b98;margin-top:13px}
+@media(min-width:800px){#controls{max-width:850px;left:50%;right:auto;width:calc(100% - 30px);transform:translateX(-50%)}}
+</style></head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+ <div class="box"><div class="label">PLAYER HEALTH</div><div class="value" id="hpText">100%</div><div id="bar"><div id="health"></div></div></div>
+ <div style="display:flex;gap:7px"><div class="box"><div class="label">SUPPLIES</div><div class="value" id="items">0/5</div></div><div class="box"><div class="label">TIME</div><div class="value" id="timer">02:00</div></div></div>
+</div>
+<div id="message"></div>
+<div id="controls">
+ <div class="pad"><div></div><button class="ctrl" data-key="up">▲</button><div></div><button class="ctrl" data-key="left">◀</button><button class="ctrl" data-key="down">▼</button><button class="ctrl" data-key="right">▶</button></div>
+ <div class="actions"><button class="ctrl" id="sprint">SPRINT ⚡</button><button class="ctrl" id="pickup">AMBIL +</button></div>
+</div>
+<div id="menu"><div class="panel">
+ <div class="eyebrow">SURVIVAL · NIGHTFALL PROTOCOL</div><h1>ZOMBIE<br><span>SURVIVAL</span></h1><div style="font-weight:bold;letter-spacing:3px">LAST ESCAPE</div>
+ <p>Kota telah dikuasai zombie. Kumpulkan 5 perlengkapan, hindari kejaran zombie, lalu capai zona evakuasi sebelum waktu habis.</p>
+ <button class="start" id="start">MULAI BERTAHAN HIDUP</button>
+ <div class="hint">PC: WASD / tombol panah · SHIFT untuk sprint · E untuk ambil<br>HP: gunakan tombol arah dan tombol AMBIL.</div>
+</div></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W,H,dpr=1;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+const keys={};let player={x:0,y:0,hp:100},zombies=[],supplies=[],time=120,collected=0,playing=false,ended=false,sprinting=false,last=0,elapsed=0,damage=0;
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+function reset(){
+ player={x:0,y:0,hp:100};time=120;collected=0;elapsed=0;damage=0;ended=false;
+ zombies=Array.from({length:7},()=>({x:rnd(-500,500),y:rnd(-900,300),speed:rnd(.65,1.05),phase:rnd(0,7)}));
+ supplies=Array.from({length:5},(_,i)=>({x:rnd(-480,480),y:rnd(-850,100),got:false}));
+}
+function pos(x,y){return{x:W/2+(x-player.x)*.82,y:H*.57+(y-player.y)*.56}}
+function poly(a,c){ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(...a[0]);a.slice(1).forEach(p=>ctx.lineTo(...p));ctx.closePath();ctx.fill()}
+function building(x,y,w,h){
+ let p=pos(x,y),s=Math.max(.35,Math.min(1.15,.5+p.y/H)),ww=w*s,hh=h*s;
+ ctx.fillStyle='#172326';ctx.fillRect(p.x-ww/2,p.y-hh,ww,hh);ctx.fillStyle='#354341';ctx.fillRect(p.x-ww/2,p.y-hh,ww,7*s);
+ for(let a=0;a<3;a++)for(let b=0;b<4;b++){ctx.fillStyle='#64736b';ctx.globalAlpha=.48;ctx.fillRect(p.x-ww/2+13+b*ww/4,p.y-hh+18+a*45,10*s,14*s)}
+ ctx.globalAlpha=1;
+}
+function background(){
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#101b22');g.addColorStop(1,'#39413c');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ for(let i=0;i<15;i++){let x=i*W/12,h=85+(i*37)%100;ctx.fillStyle=i%2?'#172326':'#202d2d';ctx.fillRect(x,H*.34-h,W/12+5,h+H*.66)}
+ poly([[W*.35,H*.35],[W*.65,H*.35],[W*1.2,H],[-W*.2,H]],'#333c39');
+ poly([[W*.40,H*.35],[W*.60,H*.35],[W*.85,H],[W*.15,H]],'#202b2d');
+ ctx.strokeStyle='#b5b09a';ctx.lineWidth=3;ctx.setLineDash([22,30]);ctx.beginPath();ctx.moveTo(W/2,H*.4);ctx.lineTo(W/2,H);ctx.stroke();ctx.setLineDash([]);
+ ctx.strokeStyle='#667068';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(W*.35,H*.35);ctx.lineTo(-W*.2,H);ctx.moveTo(W*.65,H*.35);ctx.lineTo(W*1.2,H);ctx.stroke();
+ for(let i=0;i<7;i++){let y=-550+i*190;building(-390,y,250,320);building(390,y-60,250,340)}
+}
+function person(x,y,zombie,phase=0){
+ let p=pos(x,y),s=Math.max(.42,Math.min(1.25,.5+p.y/H*.7)),bob=Math.sin(elapsed*5+phase)*2;
+ ctx.save();ctx.translate(p.x,p.y);ctx.scale(s,s);
+ ctx.fillStyle='#0008';ctx.beginPath();ctx.ellipse(0,4,15,6,0,0,Math.PI*2);ctx.fill();
+ if(zombie){
+  ctx.strokeStyle='#27342e';ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(-5,8+bob);ctx.lineTo(-9,27);ctx.moveTo(5,8+bob);ctx.lineTo(10,27);ctx.stroke();
+  ctx.fillStyle='#526b55';ctx.fillRect(-10,-19+bob,20,29);
+  ctx.strokeStyle='#526b55';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(-8,-12+bob);ctx.lineTo(-19,1+bob);ctx.moveTo(8,-12+bob);ctx.lineTo(19,1+bob);ctx.stroke();
+  ctx.fillStyle='#778b68';ctx.beginPath();ctx.arc(0,-27+bob,10,0,Math.PI*2);ctx.fill();ctx.fillStyle='#d4e77b';ctx.fillRect(-5,-29+bob,3,3);ctx.fillRect(3,-29+bob,3,3);
+ }else{
+  ctx.fillStyle='#141c20';ctx.fillRect(-10,7,8,19);ctx.fillRect(3,7,8,19);
+  ctx.fillStyle='#354e48';ctx.fillRect(-12,-17,24,28);ctx.fillStyle='#a8e66b';ctx.fillRect(-9,-13,18,5);
+  ctx.fillStyle='#c49b79';ctx.beginPath();ctx.arc(0,-25,9,0,Math.PI*2);ctx.fill();ctx.fillStyle='#25201c';ctx.fillRect(-9,-32,18,6);
+ }
+ ctx.restore();
+}
+function drawSupplies(){supplies.forEach(s=>{if(s.got)return;let p=pos(s.x,s.y);ctx.save();ctx.translate(p.x,p.y);ctx.shadowColor='#a8e66b';ctx.shadowBlur=15;ctx.fillStyle='#a8e66b';ctx.fillRect(-10,-10,20,20);ctx.shadowBlur=0;ctx.fillStyle='#172016';ctx.font='bold 16px Arial';ctx.textAlign='center';ctx.fillText('+',0,6);ctx.restore()})}
+function drawExit(){let p=pos(0,-1050);ctx.fillStyle='#a8e66b';ctx.shadowColor='#a8e66b';ctx.shadowBlur=18;ctx.fillRect(p.x-40,p.y-45,80,45);ctx.shadowBlur=0;ctx.fillStyle='#111';ctx.font='bold 12px Arial';ctx.textAlign='center';ctx.fillText('EXIT',p.x,p.y-17)}
+function message(t){let e=document.getElementById('message');e.textContent=t;clearTimeout(message.t);message.t=setTimeout(()=>e.textContent='',1400)}
+function end(win,txt){ended=true;playing=false;document.getElementById('menu').style.display='flex';document.getElementById('menu').innerHTML=`<div class="panel"><div class="eyebrow">MISSION REPORT</div><h1>${win?'MISSION':'GAME'}<br><span>${win?'COMPLETED':'OVER'}</span></h1><p>${txt}</p><h2 style="color:#a8e66b">${collected}/5 PERLENGKAPAN</h2><button class="start" onclick="location.reload()">MAIN LAGI</button></div>`}
+function update(dt){
+ if(!playing||ended)return;
+ elapsed+=dt;time=Math.max(0,time-dt);
+ let dx=0,dy=0;if(keys.up)dy--;if(keys.down)dy++;if(keys.left)dx--;if(keys.right)dx++;
+ if(dx||dy){let l=Math.hypot(dx,dy),v=(sprinting?245:155)*dt;player.x+=dx/l*v;player.y+=dy/l*v}
+ zombies.forEach(z=>{let x=player.x-z.x,y=player.y-z.y,d=Math.hypot(x,y);if(d){z.x+=x/d*z.speed*dt*60;z.y+=y/d*z.speed*dt*60}if(d<28){damage+=dt;if(damage>.7){player.hp=Math.max(0,player.hp-8);damage=0;message('AWAS! ZOMBIE MENYERANG!')}}});
+ supplies.forEach(s=>{if(!s.got&&keys.pickup&&Math.hypot(player.x-s.x,player.y-s.y)<48){s.got=true;collected++;message('PERLENGKAPAN BERHASIL DIAMBIL!')}});
+ document.getElementById('hpText').textContent=player.hp+'%';document.getElementById('health').style.width=player.hp+'%';document.getElementById('items').textContent=collected+'/5';document.getElementById('timer').textContent='0'+Math.floor(time/60)+':'+String(Math.floor(time%60)).padStart(2,'0');
+ if(player.hp<=0)end(false,'Kamu tertangkap zombie. Coba lagi!');else if(time<=0)end(false,'Waktu habis sebelum kamu mencapai zona evakuasi.');else if(collected===5&&Math.hypot(player.x,player.y+1050)<65)end(true,'Kamu berhasil mengumpulkan semua perlengkapan dan keluar dari kota!');
+}
+function render(){
+ background();
+ [-250,250].forEach((x,i)=>{let p=pos(x,-200+i*350);ctx.fillStyle='#555d56';ctx.fillRect(p.x-35,p.y-13,70,27);ctx.fillStyle='#1b292d';ctx.fillRect(p.x-22,p.y-10,44,20)});
+ drawExit();drawSupplies();zombies.forEach(z=>person(z.x,z.y,true,z.phase));person(player.x,player.y,false);
+ let g=ctx.createRadialGradient(W/2,H*.55,30,W/2,H*.55,Math.max(W,H)*.7);g.addColorStop(0,'#0000');g.addColorStop(1,'#000000a8');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+function loop(now){let dt=Math.min((now-last)/1000,.04);last=now;update(dt);render();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function setKey(k,v){keys[k]=v}
+addEventListener('keydown',e=>{let k=e.key.toLowerCase();if(k.startsWith('arrow')||k===' ')e.preventDefault();if(k==='w'||k==='arrowup')setKey('up',true);if(k==='s'||k==='arrowdown')setKey('down',true);if(k==='a'||k==='arrowleft')setKey('left',true);if(k==='d'||k==='arrowright')setKey('right',true);if(k==='shift')sprinting=true;if(k==='e'||k===' ')setKey('pickup',true)});
+addEventListener('keyup',e=>{let k=e.key.toLowerCase();if(k==='w'||k==='arrowup')setKey('up',false);if(k==='s'||k==='arrowdown')setKey('down',false);if(k==='a'||k==='arrowleft')setKey('left',false);if(k==='d'||k==='arrowright')setKey('right',false);if(k==='shift')sprinting=false;if(k==='e'||k===' ')setKey('pickup',false)});
+document.querySelectorAll('[data-key]').forEach(b=>{let k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();setKey(k,true)});['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>setKey(k,false)))});
+const sprint=document.getElementById('sprint');sprint.addEventListener('pointerdown',()=>sprinting=true);['pointerup','pointerleave','pointercancel'].forEach(ev=>sprint.addEventListener(ev,()=>sprinting=false));
+const pickup=document.getElementById('pickup');pickup.addEventListener('pointerdown',()=>setKey('pickup',true));['pointerup','pointerleave','pointercancel'].forEach(ev=>pickup.addEventListener(ev,()=>setKey('pickup',false)));
+document.getElementById('start').addEventListener('click',()=>{reset();playing=true;document.getElementById('menu').style.display='none';document.getElementById('hud').style.display='flex';document.getElementById('controls').style.display='flex'});
+})();
+</script></body></html>
